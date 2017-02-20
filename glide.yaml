@@ -1,0 +1,5 @@
+package: github.com/withmandala/go-log
+import:
+- package: golang.org/x/crypto
+  subpackages:
+  - ssh/terminal
