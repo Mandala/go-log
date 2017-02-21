@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -24,11 +25,12 @@ type FdWriter interface {
 
 // Logger struct define the underlying storage for single logger
 type Logger struct {
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	color     bool
 	out       FdWriter
 	debug     bool
 	timestamp bool
+	quiet     bool
 	buf       colorful.ColorBuffer
 }
 
@@ -41,11 +43,19 @@ type Prefix struct {
 
 var (
 	// Plain prefix template
+	plainFatal = []byte("[FATAL] ")
 	plainError = []byte("[ERROR] ")
 	plainWarn  = []byte("[WARN]  ")
 	plainInfo  = []byte("[INFO]  ")
 	plainDebug = []byte("[DEBUG] ")
 	plainTrace = []byte("[TRACE] ")
+
+	// FatalPrefix show fatal prefix
+	FatalPrefix = Prefix{
+		Plain: plainFatal,
+		Color: colorful.Red(plainFatal),
+		File:  true,
+	}
 
 	// ErrorPrefix show error prefix
 	ErrorPrefix = Prefix{
@@ -69,14 +79,14 @@ var (
 	// DebugPrefix show info prefix
 	DebugPrefix = Prefix{
 		Plain: plainDebug,
-		Color: colorful.Cyan(plainDebug),
+		Color: colorful.Purple(plainDebug),
 		File:  true,
 	}
 
 	// TracePrefix show info prefix
 	TracePrefix = Prefix{
 		Plain: plainTrace,
-		Color: colorful.Purple(plainTrace),
+		Color: colorful.Cyan(plainTrace),
 	}
 )
 
@@ -93,145 +103,194 @@ func New(out FdWriter) *Logger {
 // WithColor explicitly turn on colorful features on the log
 func (l *Logger) WithColor() *Logger {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.color = true
-	l.mu.Unlock()
 	return l
 }
 
 // WithoutColor explicitly turn off colorful features on the log
 func (l *Logger) WithoutColor() *Logger {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.color = false
-	l.mu.Unlock()
 	return l
 }
 
 // WithDebug turn on debugging output on the log to reveal debug and trace level
 func (l *Logger) WithDebug() *Logger {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.debug = true
-	l.mu.Unlock()
 	return l
 }
 
 // WithoutDebug turn off debugging output on the log
 func (l *Logger) WithoutDebug() *Logger {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.debug = false
-	l.mu.Unlock()
 	return l
+}
+
+// IsDebug check the state of debugging output
+func (l *Logger) IsDebug() bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.debug
 }
 
 // WithTimestamp turn on timestamp output on the log
 func (l *Logger) WithTimestamp() *Logger {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.timestamp = true
-	l.mu.Unlock()
 	return l
 }
 
 // WithoutTimestamp turn off timestamp output on the log
 func (l *Logger) WithoutTimestamp() *Logger {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.timestamp = false
-	l.mu.Unlock()
 	return l
+}
+
+// Quiet turn off all log output
+func (l *Logger) Quiet() *Logger {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.quiet = true
+	return l
+}
+
+// NoQuiet turn on all log output
+func (l *Logger) NoQuiet() *Logger {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.quiet = false
+	return l
+}
+
+// IsQuiet check for quiet state
+func (l *Logger) IsQuiet() bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.quiet
 }
 
 // Output print the actual value
 func (l *Logger) Output(depth int, prefix Prefix, data string) error {
+	// Check if quiet is requested, and try to return no error and be quiet
+	if l.IsQuiet() {
+		return nil
+	}
+	// Get current time
 	now := time.Now()
+	// Temporary storage for file and line tracing
 	var file string
 	var line int
+	var fn string
+	// Check if the specified prefix needs to be included with file logging
 	if prefix.File {
 		var ok bool
-		if _, file, line, ok = runtime.Caller(depth + 1); !ok {
+		var pc uintptr
+
+		// Get the caller filename and line
+		if pc, file, line, ok = runtime.Caller(depth + 1); !ok {
 			file = "<unknown file>"
+			fn = "<unknown function>"
 			line = 0
+		} else {
+			file = filepath.Base(file)
+			fn = runtime.FuncForPC(pc).Name()
 		}
 	}
-	// Acquire lock
+	// Acquire exclusive access to the shared buffer
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	// Reset buffer
+	// Reset buffer so it start from the begining
 	l.buf.Reset()
-	// Add prefix
+	// Write prefix to the buffer
 	if l.color {
 		l.buf.Append(prefix.Color)
 	} else {
 		l.buf.Append(prefix.Plain)
 	}
-	// Add date-time
+	// Check if the log require timestamping
 	if l.timestamp {
+		// Print timestamp color if color enabled
 		if l.color {
 			l.buf.Blue()
 		}
+		// Print date and time
 		year, month, day := now.Date()
-		l.cint(year, 4)
+		l.buf.AppendInt(year, 4)
 		l.buf.AppendByte('/')
-		l.cint(int(month), 2)
+		l.buf.AppendInt(int(month), 2)
 		l.buf.AppendByte('/')
-		l.cint(day, 2)
+		l.buf.AppendInt(day, 2)
 		l.buf.AppendByte(' ')
 		hour, min, sec := now.Clock()
-		l.cint(hour, 2)
+		l.buf.AppendInt(hour, 2)
 		l.buf.AppendByte(':')
-		l.cint(min, 2)
+		l.buf.AppendInt(min, 2)
 		l.buf.AppendByte(':')
-		l.cint(sec, 2)
+		l.buf.AppendInt(sec, 2)
 		l.buf.AppendByte(' ')
+		// Print reset color if color enabled
 		if l.color {
 			l.buf.Off()
 		}
 	}
-	// Add file
+	// Add caller filename and line if enabled
 	if prefix.File {
+		// Print color start if enabled
 		if l.color {
 			l.buf.Orange()
 		}
+		// Print filename and line
+		l.buf.Append([]byte(fn))
+		l.buf.AppendByte(':')
 		l.buf.Append([]byte(file))
 		l.buf.AppendByte(':')
-		l.cint(line, 0)
+		l.buf.AppendInt(line, 0)
 		l.buf.AppendByte(' ')
+		// Print color stop
 		if l.color {
 			l.buf.Off()
 		}
 	}
-	// Add data
+	// Print the actual string data from caller
 	l.buf.Append([]byte(data))
 	if len(data) == 0 || data[len(data)-1] != '\n' {
 		l.buf.AppendByte('\n')
 	}
-	// Flush to output
+	// Flush buffer to output
 	_, err := l.out.Write(l.buf.Buffer)
 	return err
 }
 
-func (l *Logger) cint(val int, width int) {
-	var repr [8]byte
-	reprCount := len(repr) - 1
-	for val >= 10 || width > 1 {
-		reminder := val / 10
-		repr[reprCount] = byte('0' + val - reminder*10)
-		val = reminder
-		reprCount--
-		width--
-	}
-	repr[reprCount] = byte('0' + val)
-	l.buf.Append(repr[reprCount:])
+// Fatal print fatal message to output and quit the application with status 1
+func (l *Logger) Fatal(v ...interface{}) {
+	l.Output(1, FatalPrefix, fmt.Sprintln(v...))
+	os.Exit(1)
 }
 
-// Error print error message to output and quit the application with status 1
+// Fatalf print formatted fatal message to output and quit the application
+// with status 1
+func (l *Logger) Fatalf(format string, v ...interface{}) {
+	l.Output(1, FatalPrefix, fmt.Sprintf(format, v...))
+	os.Exit(1)
+}
+
+// Error print error message to output
 func (l *Logger) Error(v ...interface{}) {
 	l.Output(1, ErrorPrefix, fmt.Sprintln(v...))
-	os.Exit(1)
 }
 
-// Errorf print formatted error message to output and quit the application
-// with status 1
+// Errorf print formatted error message to output
 func (l *Logger) Errorf(format string, v ...interface{}) {
 	l.Output(1, ErrorPrefix, fmt.Sprintf(format, v...))
-	os.Exit(1)
 }
 
 // Warn print warning message to output
@@ -256,28 +315,28 @@ func (l *Logger) Infof(format string, v ...interface{}) {
 
 // Debug print debug message to output if debug output enabled
 func (l *Logger) Debug(v ...interface{}) {
-	if l.debug {
+	if l.IsDebug() {
 		l.Output(1, DebugPrefix, fmt.Sprintln(v...))
 	}
 }
 
 // Debugf print formatted debug message to output if debug output enabled
 func (l *Logger) Debugf(format string, v ...interface{}) {
-	if l.debug {
+	if l.IsDebug() {
 		l.Output(1, DebugPrefix, fmt.Sprintf(format, v...))
 	}
 }
 
 // Trace print trace message to output if debug output enabled
 func (l *Logger) Trace(v ...interface{}) {
-	if l.debug {
+	if l.IsDebug() {
 		l.Output(1, TracePrefix, fmt.Sprintln(v...))
 	}
 }
 
 // Tracef print formatted trace message to output if debug output enabled
 func (l *Logger) Tracef(format string, v ...interface{}) {
-	if l.debug {
+	if l.IsDebug() {
 		l.Output(1, TracePrefix, fmt.Sprintf(format, v...))
 	}
 }

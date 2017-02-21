@@ -1,8 +1,16 @@
-hash: c6532a72fe6786b9e0c6ceca7415a79b2f14cf75c1379394e42a224952304cf4
-updated: 2017-02-20T12:07:34.792328496+07:00
+hash: d7a9bf434d5702922d7355aab91dcfe2cd2b4a16413e2ff78bf8888875e63b84
+updated: 2017-02-21T07:51:40.24027024+07:00
 imports:
+- name: github.com/smartystreets/goconvey
+  version: d4c757aa9afd1e2fc1832aaab209b5794eb336e1
+  subpackages:
+  - convey
 - name: golang.org/x/crypto
   version: 453249f01cfeb54c3d549ddb75ff152ca243f9d8
   subpackages:
   - ssh/terminal
+- name: golang.org/x/sys
+  version: 075e574b89e4c2d22f2286a7e2b919519c6f3547
+  subpackages:
+  - unix
 testImports: []
