@@ -1,12 +1,12 @@
-Go-Log
-=======
+Golang Logging Library
+=======================
 
 The colorful and simple logging library for Golang.
 
 ## What is this
 
-Opinionated logging library that able to output to `io.Reader` with file descriptors (`os.Stdout`,
-`os.Stderr`, regular file, etc.) with automatic terminal color support.
+Opinionated logging library that able to output to `io.Reader` with file descriptors (`os.Stdout`, `os.Stderr`,
+regular file, etc.) with automatic terminal color support.
 
 The log serverity and behavior can be described as follows:
 
