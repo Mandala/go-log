@@ -42,6 +42,15 @@ logger := log.New(os.Stderr)
 logger.Info("Hi, this is your logger")
 ```
 
+Write to a `log` file
+```go
+f, err := os.Create("app.log")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+logger := log.New(f)
+```
 ## Color support
 
 The library will try to automatically detect the `io.Reader` file descriptor when calling `log.New()` for color
