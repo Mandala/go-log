@@ -84,3 +84,7 @@ logger.Debug("Test debug output") // This message will not be printed
 If somehow the log is annoying to you, just shush it by calling `(Logger).Quiet()` and **ALL** log output will be
 disappear, although `.Fatal()` will silently quit the program with error. To re-enable the log output use
 `(Logger).NoQuiet()`.
+
+## Change Runtime Depth
+
+If you would like to see the runtime information about what time called the logger at a different depth, you can use `.ChangeDepth(depth int)` to change it.
